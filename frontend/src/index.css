@@ -1,0 +1,124 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+  html,
+  body,
+  #root {
+    height: 100%;
+    margin: 0;
+    padding: 0;
+  }
+  body {
+    background-color: #060912;
+    color: #e5e9f0;
+    font-family: "IBM Plex Sans", system-ui, sans-serif;
+    font-size: 13px;
+    line-height: 1.5;
+    overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  ::selection {
+    background: rgba(0, 229, 192, 0.35);
+    color: #ffffff;
+  }
+  /* Subtle dotted grid backdrop for the chrome around the globe */
+  .grid-bg {
+    background-image:
+      radial-gradient(circle at 1px 1px, rgba(31, 41, 64, 0.55) 1px, transparent 0);
+    background-size: 24px 24px;
+  }
+  /* Scrollbars */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #1f2940;
+    border-radius: 4px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #2a3654;
+  }
+}
+
+@layer components {
+  .panel {
+    @apply bg-deep border border-line rounded-md;
+  }
+  .panel-title {
+    @apply text-[10px] uppercase tracking-[0.16em] text-dim flex items-center gap-2 mb-3;
+  }
+  .panel-tag {
+    @apply font-mono text-[10px] px-1.5 py-px rounded bg-surface2 text-ink;
+  }
+  .mono {
+    font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, monospace;
+  }
+  .display {
+    font-family: "Unbounded", system-ui, sans-serif;
+  }
+  .label {
+    @apply text-[10px] uppercase tracking-[0.12em] text-dim2;
+  }
+  .value {
+    @apply font-mono text-ink;
+  }
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 px-3 py-1.5
+      text-[11px] uppercase tracking-[0.12em] font-medium
+      rounded-md border border-line text-ink bg-surface
+      transition-colors hover:bg-surface2 hover:border-line2
+      active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  .btn-primary {
+    @apply border-sonar/40 text-sonar bg-sonar/[0.06] hover:bg-sonar/10 hover:border-sonar/60;
+  }
+  .sev-pill {
+    @apply font-mono text-[9px] font-semibold tracking-[0.08em] px-1.5 py-0.5 rounded;
+  }
+  .sev-critical {
+    @apply bg-danger text-white;
+  }
+  .sev-high {
+    @apply bg-amber text-[#3b2702];
+  }
+  .sev-medium {
+    @apply bg-select text-[#0b1240];
+  }
+  .sev-low {
+    @apply bg-line2 text-ink;
+  }
+  /* Subtle scanning line over the globe area */
+  .scan-overlay::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: linear-gradient(
+      to bottom,
+      transparent,
+      rgba(0, 229, 192, 0.045) 50%,
+      transparent
+    );
+    height: 80px;
+    animation: scan 6.5s linear infinite;
+  }
+}
+
+@keyframes scan {
+  0% {
+    transform: translateY(-80px);
+  }
+  100% {
+    transform: translateY(100vh);
+  }
+}

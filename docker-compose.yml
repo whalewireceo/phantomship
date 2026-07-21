@@ -1,0 +1,33 @@
+version: "3.9"
+
+services:
+  backend:
+    build:
+      context: ./backend
+    container_name: phantomship-backend
+    restart: unless-stopped
+    environment:
+      - PHANTOMSHIP_DATA_SOURCE=${PHANTOMSHIP_DATA_SOURCE:-simulator}
+      - PHANTOMSHIP_SIM_VESSELS=${PHANTOMSHIP_SIM_VESSELS:-180}
+      - PHANTOMSHIP_SIM_ANOMALY_RATE=${PHANTOMSHIP_SIM_ANOMALY_RATE:-0.08}
+      - PHANTOMSHIP_SIM_TICK=${PHANTOMSHIP_SIM_TICK:-2.0}
+      - AISSTREAM_API_KEY=${AISSTREAM_API_KEY:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - ANTHROPIC_MODEL=${ANTHROPIC_MODEL:-claude-haiku-4-5}
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health').read()"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  frontend:
+    build:
+      context: ./frontend
+    container_name: phantomship-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "5173:80"
