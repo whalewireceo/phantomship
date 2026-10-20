@@ -5,10 +5,11 @@ import type { Threat, Vessel } from "../lib/types";
 interface Props {
   vessel: Vessel | null;
   threat: Threat | null;
+  aiEnabled: boolean;
   onClear: () => void;
 }
 
-export function VesselPanel({ vessel, threat, onClear }: Props) {
+export function VesselPanel({ vessel, threat, aiEnabled, onClear }: Props) {
   if (!vessel && !threat) return <EmptyState />;
 
   return (
@@ -26,7 +27,7 @@ export function VesselPanel({ vessel, threat, onClear }: Props) {
       <div className="overflow-y-auto px-3 pb-3 flex-1 space-y-3">
         {vessel && <VesselCard v={vessel} />}
         {threat && <ThreatCard t={threat} />}
-        {threat && <AnalystReport threat={threat} />}
+        {threat && <AnalystReport threat={threat} aiEnabled={aiEnabled} />}
       </div>
     </div>
   );
@@ -73,9 +74,9 @@ function VesselCard({ v }: { v: Vessel }) {
 
       <div className="mt-3 grid grid-cols-2 gap-2 text-[11px]">
         <KV k="Class" v={v.type.toUpperCase()} />
-        <KV k="LOA" v={`${v.length_m} m`} />
-        <KV k="Speed" v={`${v.speed.toFixed(1)} kn`} />
-        <KV k="Course" v={`${v.course.toFixed(0)}°`} />
+        <KV k="LOA" v={v.length_m > 0 ? `${v.length_m} m` : "unknown"} />
+        <KV k="Speed" v={v.speed_available === false ? "not reported" : `${v.speed.toFixed(1)} kn`} />
+        <KV k="Course" v={v.course_available === false ? "not reported" : `${v.course.toFixed(0)}°`} />
         <KV k="Position" v={`${v.lat.toFixed(3)}, ${v.lon.toFixed(3)}`} className="col-span-2" />
         <KV k="Destination" v={v.destination} className="col-span-2" />
       </div>
@@ -117,16 +118,18 @@ function ThreatCard({ t }: { t: Threat }) {
   );
 }
 
-function AnalystReport({ threat }: { threat: Threat }) {
+function AnalystReport({ threat, aiEnabled }: { threat: Threat; aiEnabled: boolean }) {
   const [assessment, setAssessment] = useState<string | null>(threat.ai_assessment);
+  const [engine, setEngine] = useState<string | null>(threat.ai_engine ?? null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Reset when threat changes
   useEffect(() => {
     setAssessment(threat.ai_assessment);
+    setEngine(threat.ai_engine ?? null);
     setError(null);
-  }, [threat.id, threat.ai_assessment]);
+  }, [threat.id, threat.ai_assessment, threat.ai_engine]);
 
   const fetchAssessment = async () => {
     setLoading(true);
@@ -134,6 +137,7 @@ function AnalystReport({ threat }: { threat: Threat }) {
     try {
       const r = await api.analysis(threat.id);
       setAssessment(r.assessment);
+      setEngine(r.engine ?? null);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -145,7 +149,12 @@ function AnalystReport({ threat }: { threat: Threat }) {
     <div className="panel bg-surface border-line p-3">
       <div className="flex items-center justify-between gap-2 mb-2">
         <h3 className="panel-title !mb-0">
-          AI analyst <span className="panel-tag text-sonar border border-sonar/40 bg-transparent">CLAUDE</span>
+          AI analyst{" "}
+          {(engine ?? (aiEnabled ? "claude" : "rule_based")) === "claude" ? (
+            <span className="panel-tag text-sonar border border-sonar/40 bg-transparent">CLAUDE</span>
+          ) : (
+            <span className="panel-tag text-dim border border-line2 bg-transparent">RULE BASED</span>
+          )}
         </h3>
         {!assessment && (
           <button
@@ -165,8 +174,9 @@ function AnalystReport({ threat }: { threat: Threat }) {
       {!assessment && !loading && !error && (
         <div className="text-[11px] text-dim leading-snug">
           Generate a maritime cyber threat assessment for this detection event.
-          Uses Claude when an API key is configured, otherwise a deterministic
-          rule-based fallback.
+          {aiEnabled
+            ? " Uses Claude."
+            : " No Anthropic API key is configured, so this uses the rule based assessment."}
         </div>
       )}
 

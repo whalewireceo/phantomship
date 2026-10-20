@@ -5,7 +5,7 @@ API keys. It spawns a fleet of vessels that follow realistic shipping routes
 at appropriate speeds, then periodically introduces known suspicious
 behaviors:
 
-  * Hypersonic speeds (40+ knots on cargo class)
+  * Sustained impossible speeds (55+ knots, with the track moving to match)
   * Position teleportation (jumping 100+ NM in a single tick)
   * MMSI identity collisions (two vessels broadcasting the same MMSI)
   * Loitering in critical infrastructure zones
@@ -16,59 +16,21 @@ would against a real AIS feed.
 """
 from __future__ import annotations
 
-import math
 import random
-import string
 from collections import deque
 from datetime import datetime, timezone
 
 from app.config import SETTINGS
-from app.data.critical_zones import CRITICAL_ZONES
+from app.data.critical_zones import CRITICAL_ZONES, point_in_zone, zone_containing
+from app.data.geo import bearing_deg, destination, haversine_nm, norm_deg
+from app.data.mmsi import MID_TO_FLAG
+from app.data.ports import port_area_at
 from app.data.ship_routes import ROUTES
 from app.models import Position, Vessel, VesselType
 
 
-EARTH_RADIUS_NM = 3440.065  # nautical miles
-
-
-# --------------------------------------------------------------------------- #
-# Geo helpers
-# --------------------------------------------------------------------------- #
-def _to_rad(d: float) -> float:
-    return d * math.pi / 180.0
-
-
-def haversine_nm(lon1: float, lat1: float, lon2: float, lat2: float) -> float:
-    """Great-circle distance between two points in nautical miles."""
-    phi1, phi2 = _to_rad(lat1), _to_rad(lat2)
-    dphi = _to_rad(lat2 - lat1)
-    dl = _to_rad(lon2 - lon1)
-    a = math.sin(dphi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(dl / 2) ** 2
-    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
-    return EARTH_RADIUS_NM * c
-
-
-def bearing_deg(lon1: float, lat1: float, lon2: float, lat2: float) -> float:
-    """Initial bearing from point 1 to point 2, in degrees [0, 360)."""
-    phi1, phi2 = _to_rad(lat1), _to_rad(lat2)
-    dl = _to_rad(lon2 - lon1)
-    y = math.sin(dl) * math.cos(phi2)
-    x = math.cos(phi1) * math.sin(phi2) - math.sin(phi1) * math.cos(phi2) * math.cos(dl)
-    theta = math.atan2(y, x)
-    return (theta * 180.0 / math.pi + 360.0) % 360.0
-
-
-def destination(lon: float, lat: float, bearing: float, distance_nm: float) -> tuple[float, float]:
-    """Compute destination given start, bearing (deg), and distance (NM)."""
-    d_r = distance_nm / EARTH_RADIUS_NM
-    br = _to_rad(bearing)
-    phi1, lam1 = _to_rad(lat), _to_rad(lon)
-    phi2 = math.asin(math.sin(phi1) * math.cos(d_r) + math.cos(phi1) * math.sin(d_r) * math.cos(br))
-    lam2 = lam1 + math.atan2(
-        math.sin(br) * math.sin(d_r) * math.cos(phi1),
-        math.cos(d_r) - math.sin(phi1) * math.sin(phi2),
-    )
-    return ((lam2 * 180.0 / math.pi + 540.0) % 360.0 - 180.0, phi2 * 180.0 / math.pi)
+# Geo helpers live in app.data.geo; re-exported here for older imports.
+__all__ = ["Simulator", "haversine_nm", "bearing_deg", "destination"]
 
 
 # --------------------------------------------------------------------------- #
@@ -94,8 +56,16 @@ def _make_name() -> str:
 _FLAGS = ["PA", "LR", "MH", "SG", "MT", "CY", "GR", "CN", "JP", "US", "DE", "GB", "NL", "NO", "DK", "IT"]
 
 
-def _make_mmsi() -> str:
-    return "".join(random.choices(string.digits, k=9))
+_FLAG_TO_MIDS: dict[str, list[str]] = {}
+for _mid, _flag in MID_TO_FLAG.items():
+    _FLAG_TO_MIDS.setdefault(_flag, []).append(_mid)
+
+
+def _make_mmsi(flag: str) -> str:
+    """A well formed ship MMSI whose country code matches the flag, the way
+    real ones do (live mode derives the flag from these digits)."""
+    mid = random.choice(_FLAG_TO_MIDS.get(flag, ["351"]))
+    return mid + "".join(random.choices("0123456789", k=6))
 
 
 # --------------------------------------------------------------------------- #
@@ -127,11 +97,12 @@ def _spawn_vessel(route_name: str, route_index: int) -> tuple[Vessel, dict]:
     course = bearing_deg(start[0], start[1], next_wp[0], next_wp[1])
     now = datetime.now(timezone.utc)
 
+    flag = random.choice(_FLAGS)
     vessel = Vessel(
-        mmsi=_make_mmsi(),
+        mmsi=_make_mmsi(flag),
         name=_make_name(),
         vessel_type=vt,
-        flag=random.choice(_FLAGS),
+        flag=flag,
         length_m=int(random.uniform(*prof["length"])),
         destination=random.choice(
             ["ROTTERDAM", "SINGAPORE", "SHANGHAI", "LOS ANGELES", "HAMBURG",
@@ -154,8 +125,25 @@ def _spawn_vessel(route_name: str, route_index: int) -> tuple[Vessel, dict]:
         "anomaly_role": None,        # set if this vessel is a planted bad actor
         "dark_until_tick": -1,       # tick number until which it stays dark
         "twin_mmsi_of": None,        # if this vessel is the spoofed twin of another
+        "burst_left": 0,             # remaining ticks of an impossible-speed burst
     }
     return vessel, sim_state
+
+
+def _zone_waypoints() -> list[tuple[str, int]]:
+    """Route waypoints inside a cable corridor or chokepoint, outside ports.
+    Loiterers and ghosts start here so the demo actually exercises the
+    loitering and dark activity detectors (most routes never enter a zone)."""
+    out = []
+    for name, pts in ROUTES.items():
+        for i, (lon, lat) in enumerate(pts):
+            z = zone_containing(lon, lat)
+            if z and z.category in ("cable", "chokepoint") and port_area_at(lon, lat) is None:
+                out.append((name, i))
+    return out
+
+
+_ZONE_WAYPOINTS = _zone_waypoints()
 
 
 # --------------------------------------------------------------------------- #
@@ -189,6 +177,12 @@ class Simulator:
         targets = random.sample(list(self.vessels.keys()), k=n_anomalous)
         for i, mmsi in enumerate(targets):
             role = roles[i % len(roles)]
+            if role in ("loiterer", "ghost") and _ZONE_WAYPOINTS:
+                route, idx = random.choice(_ZONE_WAYPOINTS)
+                placed, placed_sim = _spawn_vessel(route, idx)
+                v = self.vessels[mmsi]
+                v.last_position = placed.last_position
+                self.state[mmsi].update(route=route, wp_index=placed_sim["wp_index"])
             self.state[mmsi]["anomaly_role"] = role
 
             # Spawn a twin for spoofing role
@@ -247,8 +241,15 @@ class Simulator:
 
             # ---- inject anomaly behavior ---- #
             role = sim.get("anomaly_role")
-            if role == "hypersonic" and random.random() < 0.25:
-                speed = random.uniform(55.0, 95.0)
+            if role == "hypersonic" and (sim["burst_left"] > 0 or random.random() < 0.05):
+                # Sustained burst of impossible speed. The track moves at the
+                # reported speed too, which is what separates a real (or
+                # spoofed) speed claim from a broken speed sensor.
+                if sim["burst_left"] <= 0:
+                    sim["burst_left"] = random.randint(6, 12)
+                    sim["burst_speed"] = random.uniform(55.0, 95.0)
+                sim["burst_left"] -= 1
+                speed = sim["burst_speed"]
                 self.recent_anomaly_events.append({
                     "mmsi": vessel.mmsi, "role": "hypersonic", "tick": self.tick_count
                 })
@@ -261,17 +262,20 @@ class Simulator:
                     timestamp=datetime.now(timezone.utc),
                     lat=new_lat, lon=new_lon,
                     speed_knots=sim["cruise"],
-                    course=bearing,
-                    heading=bearing,
+                    course=norm_deg(bearing),
+                    heading=norm_deg(bearing),
                 )
                 self._append_position(vessel, new_pos)
                 self.recent_anomaly_events.append({
                     "mmsi": vessel.mmsi, "role": "teleporter", "tick": self.tick_count
                 })
                 continue
-            elif role == "ghost" and not vessel.is_dark and random.random() < 0.06:
-                # Go dark for the equivalent of ~30 minutes
-                ticks_dark = int(30 * 60 / SETTINGS.sim_tick_seconds)
+            elif (role == "ghost" and not vessel.is_dark and random.random() < 0.03
+                  and zone_containing(cur_lon, cur_lat) is not None):
+                # Go dark for ~45 minutes. (It used to be exactly 30, the same
+                # as the detector threshold, so the alert only ever fired
+                # when the scan loop happened to run slow.)
+                ticks_dark = int(45 * 60 / SETTINGS.sim_tick_seconds)
                 vessel.is_dark = True
                 sim["dark_until_tick"] = self.tick_count + ticks_dark
                 self.recent_anomaly_events.append({
@@ -281,7 +285,6 @@ class Simulator:
             elif role == "loiterer":
                 # If inside a critical zone, slow to a near-stop
                 for zone in CRITICAL_ZONES:
-                    from app.data.critical_zones import point_in_zone
                     if point_in_zone(cur_lon, cur_lat, zone) and zone.category in ("cable", "chokepoint"):
                         speed = random.uniform(0.2, 1.2)
                         break
@@ -298,16 +301,17 @@ class Simulator:
                 new_lon, new_lat = destination(cur_lon, cur_lat, course, step_nm)
                 new_course = course
 
-            # Tiny jitter for realism
-            new_course = (new_course + random.uniform(-1.5, 1.5)) % 360.0
+            # Tiny jitter for realism. Round first, then wrap: 359.996 rounds
+            # to 360.0, which Position rejects, and used to crash the tick.
+            new_course = norm_deg(round(new_course + random.uniform(-1.5, 1.5), 2))
 
             new_pos = Position(
                 timestamp=datetime.now(timezone.utc),
                 lat=new_lat,
                 lon=new_lon,
                 speed_knots=round(speed, 2),
-                course=round(new_course, 2),
-                heading=round(new_course, 2),
+                course=new_course,
+                heading=new_course,
             )
             self._append_position(vessel, new_pos)
 
@@ -324,3 +328,6 @@ class Simulator:
 
     def all_vessels_including_dark(self) -> list[Vessel]:
         return list(self.vessels.values())
+
+    def get(self, mmsi: str) -> Vessel | None:
+        return self.vessels.get(mmsi)

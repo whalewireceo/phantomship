@@ -21,6 +21,9 @@ export interface Vessel {
   speed: number;
   course: number;
   heading: number;
+  speed_available?: boolean;
+  course_available?: boolean;
+  nav_status?: number | null;
   is_dark: boolean;
   threat_score: number;
   timestamp: string;
@@ -38,7 +41,10 @@ export interface Threat {
   lat: number;
   lon: number;
   detected_at: string;
+  last_seen_at?: string;
+  occurrences?: number;
   ai_assessment: string | null;
+  ai_engine?: string | null;
 }
 
 export interface Zone {
@@ -60,6 +66,25 @@ export interface Stats {
   threats_by_severity: Record<Severity, number>;
   threats_by_detector: Record<string, number>;
   critical_zones: number;
+  scan_ms?: number;
+  findings_written?: number;
+  ai_enabled?: boolean;
+  ml?: {
+    state: "learning" | "active";
+    baseline_samples: number;
+    baseline_vessels: number;
+    min_samples: number;
+    min_vessels: number;
+    fits: number;
+  } | null;
+  data_quality?: Record<string, number>;
+  feed?: {
+    connected: boolean;
+    messages: number;
+    last_message_at: string | null;
+    last_error: string | null;
+    connects: number;
+  };
 }
 
 export interface ThreatDetail {
@@ -70,5 +95,6 @@ export interface ThreatDetail {
 
 export interface AnalysisResponse {
   assessment: string;
+  engine?: string | null;
   cached: boolean;
 }

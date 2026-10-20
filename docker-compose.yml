@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   backend:
     build:
@@ -13,9 +11,18 @@ services:
       - PHANTOMSHIP_SIM_TICK=${PHANTOMSHIP_SIM_TICK:-2.0}
       - AISSTREAM_API_KEY=${AISSTREAM_API_KEY:-}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
-      - ANTHROPIC_MODEL=${ANTHROPIC_MODEL:-claude-haiku-4-5}
+      - ANTHROPIC_MODEL=${ANTHROPIC_MODEL:-claude-haiku-5-5}
+      - PHANTOMSHIP_AI_MAX_CALLS_PER_MINUTE=${PHANTOMSHIP_AI_MAX_CALLS_PER_MINUTE:-10}
+      - PHANTOMSHIP_FINDINGS_MAX_MB=${PHANTOMSHIP_FINDINGS_MAX_MB:-100}
+      - PHANTOMSHIP_FINDINGS_PATH=/srv/findings/findings.jsonl
+    volumes:
+      # Findings log is written to ./findings on your machine
+      - ./findings:/srv/findings
     ports:
-      - "8000:8000"
+      # Localhost only. Binding to all interfaces would let anyone on the
+      # same network (cafe or campus wifi) call the API and spend the
+      # Anthropic key through the analysis endpoint.
+      - "127.0.0.1:8000:8000"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health').read()"]
       interval: 15s
@@ -28,6 +35,7 @@ services:
     container_name: phantomship-frontend
     restart: unless-stopped
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     ports:
-      - "5173:80"
+      - "127.0.0.1:5173:80"

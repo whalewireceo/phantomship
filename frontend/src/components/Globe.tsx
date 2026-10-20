@@ -33,6 +33,36 @@ function vesselAltitude(v: Vessel): number {
   return 0.005 + v.threat_score * 0.018;
 }
 
+// Shared Three.js resources. The globe rebuilds vessel meshes every poll, and
+// creating a new geometry and material per ship per poll (thousands of
+// them every 2.5 s with a live feed) leaked GPU memory and stalled the page.
+const VESSEL_GEOMETRY = (() => {
+  const g = new THREE.ConeGeometry(0.55, 1.3, 4);
+  g.rotateX(Math.PI / 2);
+  return g;
+})();
+const HALO_GEOMETRY = new THREE.RingGeometry(1.0, 1.4, 24);
+const vesselMaterials = new Map<string, THREE.MeshBasicMaterial>();
+const haloMaterials = new Map<string, THREE.MeshBasicMaterial>();
+
+function vesselMaterial(color: string): THREE.MeshBasicMaterial {
+  let m = vesselMaterials.get(color);
+  if (!m) {
+    m = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.95 });
+    vesselMaterials.set(color, m);
+  }
+  return m;
+}
+
+function haloMaterial(color: string): THREE.MeshBasicMaterial {
+  let m = haloMaterials.get(color);
+  if (!m) {
+    m = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.45, side: THREE.DoubleSide });
+    haloMaterials.set(color, m);
+  }
+  return m;
+}
+
 // ------------------------------------------------------------------------- //
 // Polygon helpers — react-globe.gl expects GeoJSON-like rings
 // ------------------------------------------------------------------------- //
@@ -147,22 +177,11 @@ export function GlobeView({
     () => (v: any) => {
       const vessel = v as Vessel;
       const color = vesselColor(vessel);
-      const geo = new THREE.ConeGeometry(0.55, 1.3, 4);
-      geo.rotateX(Math.PI / 2);
-      const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.95 });
-      const mesh = new THREE.Mesh(geo, mat);
+      const mesh = new THREE.Mesh(VESSEL_GEOMETRY, vesselMaterial(color));
       mesh.rotation.z = -(vessel.course * Math.PI) / 180;
-      // Critical-threat halo: pulsing wire-frame ring
+      // Critical-threat halo ring
       if (vessel.threat_score >= 0.9) {
-        const ring = new THREE.Mesh(
-          new THREE.RingGeometry(1.0, 1.4, 24),
-          new THREE.MeshBasicMaterial({
-            color,
-            transparent: true,
-            opacity: 0.45,
-            side: THREE.DoubleSide,
-          })
-        );
+        const ring = new THREE.Mesh(HALO_GEOMETRY, haloMaterial(color));
         ring.rotation.x = Math.PI / 2;
         mesh.add(ring);
       }
@@ -193,11 +212,11 @@ export function GlobeView({
           ${escapeHtml(vessel.name)}
         </div>
         <div style="font-size:10px;color:#8794ad;margin-top:2px;letter-spacing:0.06em;">
-          MMSI ${vessel.mmsi} · ${vessel.flag} · ${vessel.type.toUpperCase()}
+          MMSI ${escapeHtml(vessel.mmsi)} · ${escapeHtml(vessel.flag)} · ${escapeHtml(vessel.type.toUpperCase())}
         </div>
         <div style="display:flex;gap:10px;margin-top:5px;font-size:10px;color:#8794ad;">
-          <span>SOG ${vessel.speed.toFixed(1)} kn</span>
-          <span>COG ${vessel.course.toFixed(0)}°</span>
+          <span>SOG ${vessel.speed_available === false ? "n/a" : vessel.speed.toFixed(1) + " kn"}</span>
+          <span>COG ${vessel.course_available === false ? "n/a" : vessel.course.toFixed(0) + "°"}</span>
         </div>
         <div style="margin-top:5px;font-size:9.5px;letter-spacing:0.08em;
           color:${vesselColor(vessel)};">${sev}</div>

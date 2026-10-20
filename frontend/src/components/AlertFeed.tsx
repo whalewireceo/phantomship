@@ -122,7 +122,7 @@ function AlertCard({
   onClick: () => void;
 }) {
   const sevClass = `sev-${t.severity}`;
-  const detectedAt = new Date(t.detected_at);
+  const detectedAt = new Date(t.last_seen_at ?? t.detected_at);
   const time = detectedAt.toLocaleTimeString(undefined, {
     hour: "2-digit",
     minute: "2-digit",
@@ -151,6 +151,11 @@ function AlertCard({
           {DETECTOR_LABELS[t.detector] ?? t.detector}
         </span>
         <span className="flex-1" />
+        {(t.occurrences ?? 1) > 1 && (
+          <span className="text-[10px] font-mono text-dim2" title="Repeat detections merged into this alert">
+            ×{t.occurrences}
+          </span>
+        )}
         <span className="text-[10px] font-mono text-dim">{time}</span>
       </div>
       <div className="mt-1.5 text-[12px] font-medium text-ink leading-tight">

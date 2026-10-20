@@ -129,8 +129,23 @@ def point_in_zone(lon: float, lat: float, zone: CriticalZone) -> bool:
     return inside
 
 
+_BBOXES: dict[str, tuple[float, float, float, float]] = {}
+
+
+def _bbox(zone: CriticalZone) -> tuple[float, float, float, float]:
+    b = _BBOXES.get(zone.id)
+    if b is None:
+        xs = [x for x, _ in zone.polygon]
+        ys = [y for _, y in zone.polygon]
+        b = _BBOXES[zone.id] = (min(xs), min(ys), max(xs), max(ys))
+    return b
+
+
 def zone_containing(lon: float, lat: float) -> CriticalZone | None:
     for zone in CRITICAL_ZONES:
+        x0, y0, x1, y1 = _bbox(zone)
+        if lon < x0 or lon > x1 or lat < y0 or lat > y1:
+            continue
         if point_in_zone(lon, lat, zone):
             return zone
     return None

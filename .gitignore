@@ -41,3 +41,13 @@ Thumbs.db
 # --- Logs --------------------------------------------------------------------
 *.log
 logs/
+
+# --- Raw findings data -------------------------------------------------------
+# Keep the folder (so Docker does not create it as root) but never the data.
+findings/*
+!findings/.gitkeep
+
+# --- TypeScript build output -------------------------------------------------
+*.tsbuildinfo
+frontend/vite.config.js
+frontend/vite.config.d.ts

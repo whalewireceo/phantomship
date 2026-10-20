@@ -7,7 +7,7 @@ import { StatsBar } from "./components/StatsBar";
 import { VesselPanel } from "./components/VesselPanel";
 import { usePoll } from "./hooks/usePoll";
 import { api } from "./lib/api";
-import type { Threat, Vessel, Zone } from "./lib/types";
+import type { Stats, Threat, Vessel, Zone } from "./lib/types";
 
 export default function App() {
   const stats = usePoll(api.stats, 3000);
@@ -31,7 +31,10 @@ export default function App() {
   const onSelectVessel = (mmsi: string | null) => {
     setSelectedMmsi(mmsi);
     if (mmsi) {
-      const hit = threats.find((t) => t.mmsi === mmsi);
+      const rank = { critical: 3, high: 2, medium: 1, low: 0 } as const;
+      const hit = threats
+        .filter((t) => t.mmsi === mmsi)
+        .sort((a, b) => rank[b.severity] - rank[a.severity])[0];
       setSelectedThreatId(hit?.id ?? null);
     } else {
       setSelectedThreatId(null);
@@ -69,6 +72,7 @@ export default function App() {
       <Header stats={stats.data} />
 
       {allFailing && <ConnectionBanner />}
+      {!allFailing && stats.data?.feed && <FeedBanner feed={stats.data.feed} />}
 
       <div className="flex-1 grid grid-cols-[300px_1fr_320px] gap-2.5 p-2.5 overflow-hidden grid-bg">
         <AlertFeed
@@ -98,11 +102,25 @@ export default function App() {
         <VesselPanel
           vessel={selectedVessel}
           threat={selectedThreat}
+          aiEnabled={stats.data?.ai_enabled ?? false}
           onClear={onClear}
         />
       </div>
 
       <StatsBar stats={stats.data} />
+    </div>
+  );
+}
+
+function FeedBanner({ feed }: { feed: NonNullable<Stats["feed"]> }) {
+  // Only speak up when the live feed is not delivering data.
+  if (feed.messages > 0 && feed.connected) return null;
+  const msg = feed.last_error
+    ? `Live AIS feed problem: ${feed.last_error}. Check AISSTREAM_API_KEY.`
+    : "Connecting to the live AIS feed…";
+  return (
+    <div className="bg-amber/10 border-b border-amber/30 px-4 py-2 text-[11px] text-amber font-mono">
+      {msg}
     </div>
   );
 }

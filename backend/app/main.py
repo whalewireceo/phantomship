@@ -33,16 +33,16 @@ app = FastAPI(
         "Maritime cyber-intel API. Streams vessel positions and emits "
         "anomaly threats from a stack of rule-based and ML detectors."
     ),
-    version="1.0.0",
+    version="1.1.0",
     lifespan=lifespan,
 )
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=list(SETTINGS.cors_origins) + ["http://localhost:5173", "http://127.0.0.1:5173"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=list(SETTINGS.cors_origins),
+    allow_credentials=False,
+    allow_methods=["GET", "POST"],
+    allow_headers=["content-type"],
 )
 
 app.include_router(api_router, prefix="/api")
@@ -52,7 +52,7 @@ app.include_router(api_router, prefix="/api")
 async def root() -> dict:
     return {
         "service": "PhantomShip",
-        "version": "1.0.0",
+        "version": "1.1.0",
         "mode": state_engine.mode,
         "docs": "/docs",
     }

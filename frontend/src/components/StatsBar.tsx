@@ -28,9 +28,13 @@ export function StatsBar({ stats }: Props) {
       tone: "text-sonar",
     },
     {
-      k: "Detectors",
-      v: "5 / 5",
-      tone: "text-sonar",
+      k: "ML baseline",
+      v: !stats?.ml
+        ? "—"
+        : stats.ml.state === "active"
+          ? "ACTIVE"
+          : `LEARNING ${Math.min(100, Math.round((100 * stats.ml.baseline_samples) / Math.max(1, stats.ml.min_samples)))}%`,
+      tone: stats?.ml?.state === "active" ? "text-sonar" : "text-amber",
     },
   ];
 
